@@ -10,6 +10,7 @@
 #include "openvino/core/shape.hpp"
 #include "openvino/op/nv12_to_bgr.hpp"
 #include "openvino/op/nv12_to_rgb.hpp"
+#include "openvino/op/rgb_to_nv12.hpp"
 #include "openvino/opsets/opset8.hpp"
 #include "openvino/util/common_util.hpp"
 #include "transformations/rt_info/preprocessing_attribute.hpp"
@@ -521,6 +522,18 @@ void PreStepsList::add_convert_color_impl(const ColorFormat& dst_format) {
                 }
                 context.color_format() = dst_format;
                 return std::make_tuple(std::vector<Output<Node>>{convert}, true);
+            } else if ((context.color_format() == ColorFormat::RGB || context.color_format() == ColorFormat::BGR) &&
+            (dst_format == ColorFormat::NV12_SINGLE_PLANE || dst_format == ColorFormat::NV12_TWO_PLANES)) {
+                // Expect input in a single tensor for RGB/BGR
+                OPENVINO_ASSERT(nodes.size() == 1, "Internal error: RGB/BGR image must be provided as a single input tensor");
+                auto rgb_to_nv12_op = std::make_shared<op::v8::RGBtoNV12>(nodes[0]);
+                context.color_format() = dst_format;
+                if (dst_format == ColorFormat::NV12_SINGLE_PLANE) {
+                    return std::make_tuple(std::vector<Output<Node>>{rgb_to_nv12_op->output(0)}, true);
+                } else {
+                    // For NV12_TWO_PLANES, assume the op returns two outputs: [Y, UV]
+                    return std::make_tuple(std::vector<Output<Node>>{rgb_to_nv12_op->output(0), rgb_to_nv12_op->output(1)}, true);
+                }
             }
             if ((context.color_format() == ColorFormat::RGB || context.color_format() == ColorFormat::BGR) &&
                 (dst_format == ColorFormat::RGB || dst_format == ColorFormat::BGR)) {
